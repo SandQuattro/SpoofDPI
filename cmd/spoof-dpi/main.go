@@ -1,49 +1,52 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
+	"github.com/xvzc/SpoofDPI/util/log"
+
 	"github.com/xvzc/SpoofDPI/proxy"
 	"github.com/xvzc/SpoofDPI/util"
+	"github.com/xvzc/SpoofDPI/version"
 )
 
-var VERSION = "v0.0.0(dev)"
 func main() {
-	util.ParseArgs()
-	config := util.GetConfig()
-	if *config.Version {
-		println("spoog-dpi", VERSION)
-		println("\nA simple and fast anti-censorship tool written in Go.")
-		println("https://github.com/xvzc/SpoofDPI")
+	args := util.ParseArgs()
+	if args.Version {
+		version.PrintVersion()
 		os.Exit(0)
 	}
 
+	config := util.GetConfig()
+	config.Load(args)
+
+	log.InitLogger(config)
+	ctx := util.GetCtxWithScope(context.Background(), "MAIN")
+	logger := log.GetCtxLogger(ctx)
+
 	pxy := proxy.New(config)
-	if *config.Debug {
-		log.SetLevel(log.DebugLevel)
-	} else {
-		log.SetLevel(log.InfoLevel)
-	}
 
-	log.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
-
-	if *config.NoBanner {
+	if config.NoBanner {
 		util.PrintSimpleInfo()
 	} else {
 		util.PrintColoredBanner()
 	}
 
-	if err := util.SetOsProxy(*config.Port); err != nil {
-		log.Fatal(err)
+	if config.SystemProxy {
+		if err := util.SetOsProxy(config.Port); err != nil {
+			logger.Fatal().Msgf("error while changing proxy settings: %s", err)
+		}
+		defer func() {
+			if err := util.UnsetOsProxy(); err != nil {
+				logger.Fatal().Msgf("error while disabling proxy: %s", err)
+			}
+		}()
 	}
 
-	go pxy.Start()
+	go pxy.Start(context.Background())
 
 	// Handle signals
 	sigs := make(chan os.Signal, 1)
@@ -63,7 +66,4 @@ func main() {
 	}()
 
 	<-done
-	if err := util.UnsetOsProxy(); err != nil {
-		log.Fatal(err)
-	}
 }

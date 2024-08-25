@@ -1,96 +1,86 @@
 package proxy
 
 import (
+	"context"
+	"github.com/xvzc/SpoofDPI/util"
 	"net"
 	"strconv"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/xvzc/SpoofDPI/packet"
+	"github.com/xvzc/SpoofDPI/util/log"
 )
 
-func (pxy *Proxy) handleHttps(lConn *net.TCPConn, initPkt *packet.HttpPacket, ip string) {
+const protoHTTPS = "HTTPS"
+
+func (pxy *Proxy) handleHttps(ctx context.Context, lConn *net.TCPConn, exploit bool, initPkt *packet.HttpRequest, ip string) {
+	ctx = util.GetCtxWithScope(ctx, protoHTTPS)
+	logger := log.GetCtxLogger(ctx)
+
 	// Create a connection to the requested server
 	var port int = 443
 	var err error
 	if initPkt.Port() != "" {
 		port, err = strconv.Atoi(initPkt.Port())
 		if err != nil {
-			log.Debug("[HTTPS] Error while parsing port for ", initPkt.Domain(), " aborting..")
+			logger.Debug().Msgf("error parsing port for %s aborting..", initPkt.Domain())
 		}
 	}
 
 	rConn, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: net.ParseIP(ip), Port: port})
 	if err != nil {
 		lConn.Close()
-		log.Debug("[HTTPS] ", err)
+		logger.Debug().Msgf("%s", err)
 		return
 	}
 
-	defer func() {
-		lConn.Close()
-		log.Debug("[HTTPS] Closing client Connection.. ", lConn.RemoteAddr())
-
-		rConn.Close()
-		log.Debug("[HTTPS] Closing server Connection.. ", initPkt.Domain(), " ", rConn.LocalAddr())
-	}()
-
-	log.Debug("[HTTPS] New connection to the server ", initPkt.Domain(), " ", rConn.LocalAddr())
+	logger.Debug().Msgf("new connection to the server %s -> %s", rConn.LocalAddr(), initPkt.Domain())
 
 	_, err = lConn.Write([]byte(initPkt.Version() + " 200 Connection Established\r\n\r\n"))
 	if err != nil {
-		log.Debug("[HTTPS] Error sending 200 Connection Established to the client", err)
+		logger.Debug().Msgf("error sending 200 connection established to the client: %s", err)
 		return
 	}
 
-	log.Debug("[HTTPS] Sent 200 Connection Estabalished to ", lConn.RemoteAddr())
+	logger.Debug().Msgf("sent connection estabalished to %s", lConn.RemoteAddr())
 
 	// Read client hello
-	clientHello, err := ReadBytes(lConn)
-	if err != nil {
-		log.Debug("[HTTPS] Error reading client hello from the client", err)
+	m, err := packet.ReadTLSMessage(lConn)
+	if err != nil || !m.IsClientHello() {
+		logger.Debug().Msgf("error reading client hello from %s: %s", lConn.RemoteAddr().String(), err)
 		return
 	}
+	clientHello := m.Raw
 
-	log.Debug("[HTTPS] Client sent hello ", len(clientHello), "bytes")
+	logger.Debug().Msgf("client sent hello %d bytes", len(clientHello))
 
 	// Generate a go routine that reads from the server
+	go Serve(ctx, rConn, lConn, protoHTTPS, initPkt.Domain(), lConn.RemoteAddr().String(), pxy.timeout)
 
-	chPkt := packet.NewHttpsPacket(clientHello)
-
-	// lConn.SetLinger(3)
-	// rConn.SetLinger(3)
-
-	go Serve(rConn, lConn, "[HTTPS]", rConn.RemoteAddr().String(), initPkt.Domain(), pxy.timeout)
-
-	if pxy.patternExists() && !pxy.patternMatches([]byte(initPkt.Domain())) {
-		log.Debug("[HTTPS] Writing plain client hello to ", initPkt.Domain())
-		if _, err := rConn.Write(chPkt.Raw()); err != nil {
-			log.Debug("[HTTPS] Error writing plain client hello to ", initPkt.Domain(), err)
+	if exploit {
+		logger.Debug().Msgf("writing chunked client hello to %s", initPkt.Domain())
+		chunks := splitInChunks(ctx, clientHello, pxy.windowSize)
+		if _, err := writeChunks(rConn, chunks); err != nil {
+			logger.Debug().Msgf("error writing chunked client hello to %s: %s", initPkt.Domain(), err)
 			return
 		}
 	} else {
-		log.Debug("[HTTPS] Writing chunked client hello to ", initPkt.Domain())
-		chunks := pxy.splitInChunks(chPkt.Raw())
-		if _, err := WriteChunks(rConn, chunks); err != nil {
-			log.Debug("[HTTPS] Error writing chunked client hello to ", initPkt.Domain(), err)
+		logger.Debug().Msgf("writing plain client hello to %s", initPkt.Domain())
+		if _, err := rConn.Write(clientHello); err != nil {
+			logger.Debug().Msgf("error writing plain client hello to %s: %s", initPkt.Domain(), err)
 			return
 		}
 	}
 
-	Serve(lConn, rConn, "[HTTPS]", lConn.RemoteAddr().String(), initPkt.Domain(), pxy.timeout)
+	go Serve(ctx, lConn, rConn, protoHTTPS, lConn.RemoteAddr().String(), initPkt.Domain(), pxy.timeout)
 }
 
-func (pxy *Proxy) splitInChunks(bytes []byte) [][]byte {
-	// If the packet matches the pattern or the URLs, we don't split it
-	if pxy.patternExists() && !pxy.patternMatches(bytes) {
-		return [][]byte{bytes}
-	}
+func splitInChunks(ctx context.Context, bytes []byte, size int) [][]byte {
+	logger := log.GetCtxLogger(ctx)
 
 	var chunks [][]byte
 	var raw []byte = bytes
-  var size = pxy.windowSize
 
-  log.Debug("[HTTPS] window-size: ", size)
+	logger.Debug().Msgf("window-size: %d", size)
 
 	if size > 0 {
 		for {
@@ -111,22 +101,27 @@ func (pxy *Proxy) splitInChunks(bytes []byte) [][]byte {
 		return chunks
 	}
 
-  // When the given window-size <= 0
+	// When the given window-size <= 0
 
 	if len(raw) < 1 {
 		return [][]byte{raw}
 	}
 
-  log.Debug("[HTTPS] Using legacy fragmentation.")
+	logger.Debug().Msg("using legacy fragmentation")
 
 	return [][]byte{raw[:1], raw[1:]}
 }
 
-func (pxy *Proxy) patternExists() bool {
-	return pxy.allowedPattern != nil || pxy.allowedUrls != nil
-}
+func writeChunks(conn *net.TCPConn, c [][]byte) (n int, err error) {
+	total := 0
+	for i := 0; i < len(c); i++ {
+		b, err := conn.Write(c[i])
+		if err != nil {
+			return 0, nil
+		}
 
-func (pxy *Proxy) patternMatches(bytes []byte) bool {
-	return (pxy.allowedPattern != nil && pxy.allowedPattern.Match(bytes)) ||
-		(pxy.allowedUrls != nil && pxy.allowedUrls.Match(bytes))
+		total += b
+	}
+
+	return total, nil
 }

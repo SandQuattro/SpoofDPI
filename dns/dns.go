@@ -2,89 +2,97 @@ package dns
 
 import (
 	"context"
-	"errors"
-	"regexp"
+	"fmt"
+	"net"
 	"strconv"
 	"time"
 
-	"github.com/likexian/doh"
-	dohDns "github.com/likexian/doh/dns"
 	"github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
+	"github.com/xvzc/SpoofDPI/dns/resolver"
 	"github.com/xvzc/SpoofDPI/util"
+	"github.com/xvzc/SpoofDPI/util/log"
 )
 
-type DnsResolver struct {
-	host      string
-	port      string
-	enableDoh bool
+const scopeDNS = "DNS"
+
+type Resolver interface {
+	Resolve(ctx context.Context, host string, qTypes []uint16) ([]net.IPAddr, error)
+	String() string
 }
 
-func NewResolver(config *util.Config) *DnsResolver {
-	return &DnsResolver{
-		host:      *config.DnsAddr,
-		port:      strconv.Itoa(*config.DnsPort),
-		enableDoh: *config.EnableDoh,
+type Dns struct {
+	host          string
+	port          string
+	systemClient  Resolver
+	generalClient Resolver
+	dohClient     Resolver
+}
+
+func NewDns(config *util.Config) *Dns {
+	addr := config.DnsAddr
+	port := strconv.Itoa(config.DnsPort)
+
+	return &Dns{
+		host:          config.DnsAddr,
+		port:          port,
+		systemClient:  resolver.NewSystemResolver(),
+		generalClient: resolver.NewGeneralResolver(net.JoinHostPort(addr, port)),
+		dohClient:     resolver.NewDOHResolver(addr),
 	}
 }
 
-func (d *DnsResolver) Lookup(domain string) (string, error) {
-	ipRegex := "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+func (d *Dns) ResolveHost(ctx context.Context, host string, enableDoh bool, useSystemDns bool) (string, error) {
+	ctx = util.GetCtxWithScope(ctx, scopeDNS)
+	logger := log.GetCtxLogger(ctx)
 
-	if r, _ := regexp.MatchString(ipRegex, domain); r {
-		return domain, nil
+	if ip, err := parseIpAddr(host); err == nil {
+		return ip.String(), nil
 	}
 
-	if d.enableDoh {
-		return dohLookup(domain)
-	}
-
-	dnsServer := d.host + ":" + d.port
-
-	msg := new(dns.Msg)
-	msg.SetQuestion(dns.Fqdn(domain), dns.TypeA)
-
-	c := new(dns.Client)
-
-	response, _, err := c.Exchange(msg, dnsServer)
-	if err != nil {
-		return "", errors.New("couldn not resolve the domain")
-	}
-
-	for _, answer := range response.Answer {
-		if record, ok := answer.(*dns.A); ok {
-			log.Debug("[DNS] resolved ", domain, ": ", record.A.String())
-			return record.A.String(), nil
-		}
-	}
-
-	return "", errors.New("no record found")
-}
-
-func dohLookup(domain string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	clt := d.clientFactory(enableDoh, useSystemDns)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	c := doh.Use(doh.CloudflareProvider, doh.GoogleProvider)
 
-	rsp, err := c.Query(ctx, dohDns.Domain(domain), dohDns.TypeA)
+	logger.Debug().Msgf("resolving %s using %s", host, clt)
+
+	t := time.Now()
+
+	addrs, err := clt.Resolve(ctx, host, []uint16{dns.TypeAAAA, dns.TypeA})
+	// addrs, err := clt.Resolve(ctx, host, []uint16{dns.TypeAAAA})
 	if err != nil {
-		return "", errors.New("could not resolve the domain")
-	}
-	// doh dns answer
-	answer := rsp.Answer
-
-	// print all answer
-	for _, a := range answer {
-		if a.Type != 1 { // Type == 1 -> A Record
-			continue
-		}
-
-		log.Debug("[DOH] resolved ", domain, ": ", a.Data)
-		return a.Data, nil
+		return "", fmt.Errorf("%s: %w", clt, err)
 	}
 
-	// close the client
-	c.Close()
+	if len(addrs) > 0 {
+		d := time.Since(t).Milliseconds()
+		logger.Debug().Msgf("resolved %s from %s in %d ms", addrs[0].String(), host, d)
+		return addrs[0].String(), nil
+	}
 
-	return "", errors.New("no record found")
+	return "", fmt.Errorf("could not resolve %s using %s", host, clt)
+}
+
+func (d *Dns) clientFactory(enableDoh bool, useSystemDns bool) Resolver {
+	if useSystemDns {
+		return d.systemClient
+	}
+
+	if enableDoh {
+		return d.dohClient
+	}
+
+	return d.generalClient
+}
+
+func parseIpAddr(addr string) (*net.IPAddr, error) {
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return nil, fmt.Errorf("%s is not an ip address", addr)
+	}
+
+	ipAddr := &net.IPAddr{
+		IP: ip,
+	}
+
+	return ipAddr, nil
 }

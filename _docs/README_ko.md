@@ -2,7 +2,7 @@
 
 # SpoofDPI
 
-다른 언어로 읽기: [🇬🇧English](https://github.com/xvzc/SpoofDPI), [🇰🇷한국어](https://github.com/xvzc/SpoofDPI/blob/main/readme_ko.md), [🇨🇳简体中文](https://github.com/xvzc/SpoofDPI/blob/main/readme_zh-cn.md), [🇷🇺Русский](https://github.com/xvzc/SpoofDPI/blob/main/readme_ru.md)
+다른 언어로 읽기: [🇬🇧English](https://github.com/xvzc/SpoofDPI), [🇰🇷한국어](https://github.com/xvzc/SpoofDPI/blob/main/_docs/README_ko.md), [🇨🇳简体中文](https://github.com/xvzc/SpoofDPI/blob/main/_docs/README_zh-cn.md), [🇷🇺Русский](https://github.com/xvzc/SpoofDPI/blob/main/_docs/README_ru.md), [🇯🇵日本語](https://github.com/xvzc/SpoofDPI/blob/main/_docs/README_ja.md)
 
 DPI(Deep Packet Inspection) 우회를 위해 고안된 소프트웨어  
   
@@ -38,9 +38,10 @@ curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bas
 
 
 ## Go
-**go install**로 설치하기
-`$ go install github.com/xvzc/SpoofDPI/cmd/spoof-dpi`  
-  > Remember that $GOPATH should be set in your $PATH
+`go install`로 설치하기
+```bash
+$ go install github.com/xvzc/SpoofDPI/cmd/spoof-dpi@latest
+```
 
 ## Git
 직접 빌드하기
@@ -60,18 +61,18 @@ Usage: spoof-dpi [options...]
   -dns-port int
         port number for dns (default 53)
   -enable-doh
-        enable 'dns over https'
+        enable 'dns-over-https'
   -no-banner
         disable banner
-  -pattern string
-        bypass DPI only on packets matching this regex pattern
+  -pattern value
+        bypass DPI only on packets matching this regex pattern; can be given multiple times
   -port int
         port (default 8080)
+  -system-proxy
+        enable system-wide proxy (default true)
   -timeout int
-        timeout in milliseconds. no timeout when not given
-  -url value
-        Bypass DPI only on this url, can be passed multiple times
-  -v    print spoof-dpi's version. this may contain some other relevant information
+        timeout in milliseconds; no timeout when not given
+  -v    print spoof-dpi's version; this may contain some other relevant information
   -window-size int
         chunk size, in number of bytes, for fragmented client hello,
         try lower values if the default value doesn't bypass the DPI;
@@ -94,11 +95,10 @@ SpoofDPI는 HTTP 요청에 대한 DPI 우회는 지원하지 않습니다.
 다만 모든 HTTP 요청에 대한 Proxy 연결은 지원합니다.
 
 ### HTTPS
-TLS 1.3은 모든 Handshake 과정을 암호화 합니다. 하지만, Client hello 패킷의 일부에는 여전히 서버의 도메인 네임이 평문으로 노출되어있습니다. 
+TLS는 모든 Handshake 과정을 암호화 합니다. 하지만, Client hello 패킷의 일부에는 여전히 서버의 도메인 네임이 평문으로 노출되어있습니다. 
 다시 말하자면, 누군가가 암호화된 패킷을 본다면 해당 패킷의 목적지가 어딘지 손쉽게 알아차릴 수 있다는 뜻입니다. 
 노출된 도메인은 DPI 검열에 매우 유용하게 사용될 수도 있고, 실제로 HTTPS 요청을 보냈을 때 차단이 이루어지는 시점도 Client hello 패킷을 보낸 시점입니다. 
 여러가지 방법을 시도해본 결과, Client hello 패킷을 여러 조각으로 나누어 요청을 보냈을 때, 첫번째 조각에 대해서만 도메인 검열이 이루어지는 듯한 동작을 발견했습니다. 따라서 SpoofDPI는 해당 패킷을 두번에 나누어 보냅니다. 자세히 말하자면, 첫번째 1 바이트를 우선적으로 보내고, 나머지를 그 이후에 보내는 동작을 수행합니다.
-> SpoofDPI는 HTTPS 패킷을 복호화 하지 않기때문에 SSL 인증서를 필요로하지 않습니다.
 
 # 참고
 [Green Tunnel](https://github.com/SadeghHayeri/GreenTunnel) by @SadeghHayeri  

@@ -1,128 +1,224 @@
 package proxy
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	dnstype "github.com/miekg/dns"
+	"github.com/xvzc/SpoofDPI/dns"
+	"github.com/xvzc/SpoofDPI/dns/resolver"
+	"github.com/xvzc/SpoofDPI/packet"
+	"github.com/xvzc/SpoofDPI/util"
+	"github.com/xvzc/SpoofDPI/util/log"
 	"net"
 	"os"
 	"regexp"
 	"strconv"
-
-	log "github.com/sirupsen/logrus"
-	"github.com/xvzc/SpoofDPI/dns"
-	"github.com/xvzc/SpoofDPI/packet"
-	"github.com/xvzc/SpoofDPI/util"
+	"strings"
 )
+
+const scopeProxy = "PROXY"
+
+var domainList []string
+
+func init() {
+	file, err := os.Open("blocked_domains.txt")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		domain := strings.TrimSpace(scanner.Text())
+		if domain != "" {
+			domainList = append(domainList, domain)
+		}
+	}
+
+	if err = scanner.Err(); err != nil {
+		panic(err)
+	}
+
+}
 
 type Proxy struct {
 	addr           string
 	port           int
 	timeout        int
-	resolver       *dns.DnsResolver
+	resolver       *dns.Dns
 	windowSize     int
-	allowedPattern *regexp.Regexp
-	allowedUrls    *regexp.Regexp
+	enableDoh      bool
+	allowedPattern []*regexp.Regexp
+	currentDns     string
+	vpnPattern     []*regexp.Regexp
 }
 
 func New(config *util.Config) *Proxy {
 	return &Proxy{
-		addr:           *config.Addr,
-		port:           *config.Port,
-		timeout:        *config.Timeout,
-		windowSize:     *config.WindowSize,
-		allowedPattern: config.AllowedPattern,
-		allowedUrls:    config.AllowedUrls,
-		resolver:       dns.NewResolver(config),
+		addr:           config.Addr,
+		port:           config.Port,
+		timeout:        config.Timeout,
+		windowSize:     config.WindowSize,
+		enableDoh:      config.EnableDoh,
+		allowedPattern: config.AllowedPatterns,
+		currentDns:     config.CurrentDNS,
+		vpnPattern:     config.VPNPatterns,
+		resolver:       dns.NewDns(config),
 	}
 }
 
-func (pxy *Proxy) Start() {
-	l, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.ParseIP(pxy.addr), Port: pxy.port})
+func (pxy *Proxy) Start(ctx context.Context) {
+	generalResolver := resolver.NewGeneralResolver(fmt.Sprintf("%s:53", pxy.currentDns))
+
+	ctx = util.GetCtxWithScope(ctx, scopeProxy)
+	logger := log.GetCtxLogger(ctx)
+
+	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP(pxy.addr), Port: pxy.port})
 	if err != nil {
-		log.Fatal("[PROXY] Error creating listener: ", err)
+		logger.Fatal().Msgf("error creating listener: %s", err)
 		os.Exit(1)
 	}
 
-  if pxy.timeout > 0 {
-	  log.Println(fmt.Sprintf("[PROXY] Connection timeout is set to %dms", pxy.timeout))
-  }
+	if pxy.timeout > 0 {
+		logger.Info().Msgf("connection timeout is set to %d ms", pxy.timeout)
+	}
 
-	log.Println("[PROXY] Created a listener on port", pxy.port)
+	logger.Info().Msgf("created a listener on port %d", pxy.port)
+	if len(pxy.allowedPattern) > 0 {
+		logger.Info().Msgf("number of white-listed pattern: %d", len(pxy.allowedPattern))
+	}
+
+	if len(pxy.vpnPattern) > 0 {
+		logger.Info().Msgf("number of vpn pattern: %d", len(pxy.vpnPattern))
+	}
 
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			log.Fatal("[PROXY] Error accepting connection: ", err)
+			logger.Fatal().Msgf("error accepting connection: %s", err)
 			continue
 		}
 
 		go func() {
-			b, err := ReadBytes(conn.(*net.TCPConn))
-			if err != nil {
-				return
-			}
+			ctx := util.GetCtxWithTraceId(ctx)
 
-			log.Debug("[PROXY] Request from ", conn.RemoteAddr(), "\n\n", string(b))
-
-			pkt, err := packet.NewHttpPacket(b)
+			pkt, err := packet.ReadHttpRequest(conn)
 			if err != nil {
-				log.Debug("[PROXY] Error while parsing request: ", string(b))
+				logger.Debug().Msgf("error while parsing request: %s", err)
 				conn.Close()
 				return
 			}
+
+			if pxy.vpnPatternMatches([]byte(pkt.Domain())) {
+				logger.Warn().Msgf("started custom vpn resolver, domain: %s", pkt.Domain())
+
+				ip, err := generalResolver.Resolve(ctx, pkt.Domain(), []uint16{dnstype.TypeAAAA, dnstype.TypeA})
+				if err != nil {
+					logger.Error().Msgf("error resolving custom domain: %s", err)
+					conn.Close()
+					return
+				}
+				if ip == nil {
+					logger.Error().Msgf("error resolving custom domain: %s with dns:%s: no ip found", pkt.Domain(), pxy.currentDns)
+					conn.Close()
+					return
+				}
+
+				pxy.handleHttps(ctx, conn.(*net.TCPConn), false, pkt, ip[0].String())
+				return
+			}
+
+			// blocking advertising domains
+			for _, domain := range domainList {
+				if strings.Contains(pkt.Domain(), domain) {
+					logger.Warn().Msgf("blocked domain: %s", pkt.Domain())
+					conn.Close()
+					return
+				}
+			}
+
+			logger.Debug().Msgf("request from %s\n\n%s", conn.RemoteAddr(), pkt.Raw())
 
 			if !pkt.IsValidMethod() {
-				log.Debug("[PROXY] Unsupported method: ", pkt.Method())
+				logger.Debug().Msgf("unsupported method: %s", pkt.Method())
 				conn.Close()
 				return
 			}
 
-			ip, err := pxy.resolver.Lookup(pkt.Domain())
+			matched := pxy.patternMatches([]byte(pkt.Domain()))
+			useSystemDns := !matched
+
+			ip, err := pxy.resolver.ResolveHost(ctx, pkt.Domain(), pxy.enableDoh, useSystemDns)
 			if err != nil {
-        log.Debug("[PROXY] Error while dns lookup: ", pkt.Domain(), " ", err)
+				logger.Debug().Msgf("error while dns lookup: %s %s", pkt.Domain(), err)
 				conn.Write([]byte(pkt.Version() + " 502 Bad Gateway\r\n\r\n"))
 				conn.Close()
 				return
 			}
 
 			// Avoid recursively querying self
-			if pkt.Port() == strconv.Itoa(pxy.port) && isLoopedRequest(net.ParseIP(ip)) {
-				log.Error("[PROXY] Looped request has been detected. aborting.")
+			if pkt.Port() == strconv.Itoa(pxy.port) && isLoopedRequest(ctx, net.ParseIP(ip)) {
+				logger.Error().Msg("looped request has been detected. aborting.")
 				conn.Close()
 				return
 			}
 
 			if pkt.IsConnectMethod() {
-				log.Debug("[PROXY] Start HTTPS")
-				pxy.handleHttps(conn.(*net.TCPConn), pkt, ip)
+				pxy.handleHttps(ctx, conn.(*net.TCPConn), matched, pkt, ip)
 			} else {
-				log.Debug("[PROXY] Start HTTP")
-				pxy.handleHttp(conn.(*net.TCPConn), pkt, ip)
+				pxy.handleHttp(ctx, conn.(*net.TCPConn), pkt, ip)
 			}
 		}()
 	}
 }
 
-func isLoopedRequest(ip net.IP) bool {
-	// we don't handle IPv6 at all it seems
-	if ip.To4() == nil {
-		return false
+func (pxy *Proxy) patternMatches(bytes []byte) bool {
+	if pxy.allowedPattern == nil {
+		return true
 	}
 
+	for _, pattern := range pxy.allowedPattern {
+		if pattern.Match(bytes) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (pxy *Proxy) vpnPatternMatches(bytes []byte) bool {
+	if pxy.vpnPattern == nil {
+		return true
+	}
+
+	for _, pattern := range pxy.vpnPattern {
+		if pattern.Match(bytes) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isLoopedRequest(ctx context.Context, ip net.IP) bool {
 	if ip.IsLoopback() {
 		return true
 	}
+
+	logger := log.GetCtxLogger(ctx)
 
 	// Get list of available addresses
 	// See `ip -4 addr show`
 	addr, err := net.InterfaceAddrs() // needs AF_NETLINK on linux
 	if err != nil {
-		log.Error("[PROXY] Error while getting addresses of our network interfaces: ", err)
+		logger.Error().Msgf("error while getting addresses of our network interfaces: %s", err)
 		return false
 	}
 
 	for _, addr := range addr {
 		if ipnet, ok := addr.(*net.IPNet); ok {
-			if ipnet.IP.To4() != nil && ipnet.IP.To4().Equal(ip) {
+			if ipnet.IP.Equal(ip) {
 				return true
 			}
 		}
