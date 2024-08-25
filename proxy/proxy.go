@@ -10,11 +10,14 @@ import (
 	"github.com/xvzc/SpoofDPI/packet"
 	"github.com/xvzc/SpoofDPI/util"
 	"github.com/xvzc/SpoofDPI/util/log"
+	"golang.org/x/exp/maps"
 	"net"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 const scopeProxy = "PROXY"
@@ -69,10 +72,21 @@ func New(config *util.Config) *Proxy {
 }
 
 func (pxy *Proxy) Start(ctx context.Context) {
-	generalResolver := resolver.NewGeneralResolver(fmt.Sprintf("%s:53", pxy.currentDns))
-
 	ctx = util.GetCtxWithScope(ctx, scopeProxy)
 	logger := log.GetCtxLogger(ctx)
+
+	generalResolver := resolver.NewGeneralResolver(fmt.Sprintf("%s:53", pxy.currentDns))
+	vpnCache := make(map[string][]net.IPAddr)
+	mu := &sync.Mutex{}
+	tick := time.Tick(30 * time.Minute)
+	go func() {
+		for range tick {
+			logger.Warn().Msgf("clearing vpn dns cache")
+			mu.Lock()
+			maps.Clear(vpnCache)
+			mu.Unlock()
+		}
+	}()
 
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP(pxy.addr), Port: pxy.port})
 	if err != nil {
@@ -110,19 +124,28 @@ func (pxy *Proxy) Start(ctx context.Context) {
 				return
 			}
 
-			if pxy.vpnPatternMatches([]byte(pkt.Domain())) {
-				logger.Warn().Msgf("started custom vpn resolver, domain: %s", pkt.Domain())
-
-				ip, err := generalResolver.Resolve(ctx, pkt.Domain(), []uint16{dnstype.TypeAAAA, dnstype.TypeA})
-				if err != nil {
-					logger.Error().Msgf("error resolving custom domain: %s", err)
-					conn.Close()
-					return
-				}
-				if ip == nil {
-					logger.Error().Msgf("error resolving custom domain: %s with dns:%s: no ip found", pkt.Domain(), pxy.currentDns)
-					conn.Close()
-					return
+			if len(pxy.vpnPattern) > 0 && pxy.vpnPatternMatches([]byte(pkt.Domain())) {
+				mu.Lock()
+				ip, exists := vpnCache[pkt.Domain()]
+				mu.Unlock()
+				if !exists {
+					logger.Warn().Msgf("started custom vpn resolver, domain: %s", pkt.Domain())
+					ip, err = generalResolver.Resolve(ctx, pkt.Domain(), []uint16{dnstype.TypeAAAA, dnstype.TypeA})
+					if err != nil {
+						logger.Error().Msgf("error resolving custom domain: %s", err)
+						conn.Close()
+						return
+					}
+					if ip == nil {
+						logger.Error().Msgf("error resolving custom domain: %s with dns:%s: no ip found", pkt.Domain(), pxy.currentDns)
+						conn.Close()
+						return
+					}
+					mu.Lock()
+					vpnCache[pkt.Domain()] = ip
+					mu.Unlock()
+				} else {
+					logger.Warn().Msgf("ip cache hit for domain: %s", pkt.Domain())
 				}
 
 				pxy.handleHttps(ctx, conn.(*net.TCPConn), false, pkt, ip[0].String())
