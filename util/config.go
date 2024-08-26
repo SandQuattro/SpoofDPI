@@ -1,8 +1,13 @@
 package util
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"os/exec"
 	"regexp"
+	"runtime"
+	"strings"
 
 	"github.com/pterm/pterm"
 	"github.com/pterm/pterm/putils"
@@ -15,11 +20,13 @@ type Config struct {
 	DnsPort         int
 	EnableDoh       bool
 	Debug           bool
-	Banner        bool
+	Banner          bool
 	SystemProxy     bool
 	Timeout         int
 	WindowSize      int
 	AllowedPatterns []*regexp.Regexp
+	CurrentDNS      string
+	VPNPatterns     []*regexp.Regexp
 }
 
 var config *Config
@@ -43,6 +50,13 @@ func (c *Config) Load(args *Args) {
 	c.Timeout = args.Timeout
 	c.AllowedPatterns = parseAllowedPattern(args.AllowedPattern)
 	c.WindowSize = args.WindowSize
+
+	c.VPNPatterns = parseAllowedPattern(args.VPNPattern)
+	currentDns, err := getCurrentDNSServer()
+	if err != nil {
+		panic(err)
+	}
+	c.CurrentDNS = currentDns
 }
 
 func parseAllowedPattern(patterns StringArray) []*regexp.Regexp {
@@ -67,7 +81,7 @@ func PrintColoredBanner() {
 		{Level: 0, Text: "DEBUG   : " + fmt.Sprint(config.Debug)},
 	}).Render()
 
-  	pterm.DefaultBasicText.Println("Press 'CTRL + c' to quit")
+	pterm.DefaultBasicText.Println("Press 'CTRL + c' to quit")
 }
 
 func PrintSimpleInfo() {
@@ -79,4 +93,31 @@ func PrintSimpleInfo() {
 	fmt.Println("")
 	fmt.Println("Press 'CTRL + c to quit'")
 	fmt.Println("")
+}
+
+func getCurrentDNSServer() (string, error) {
+	if runtime.GOOS == "darwin" {
+		cmd := exec.Command("scutil", "--dns")
+		out, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to run scutil command: %v", err)
+		}
+
+		var dnsServer string
+		lines := bytes.Split(out, []byte("\n"))
+		for _, line := range lines {
+			if bytes.Contains(line, []byte("nameserver")) {
+				fields := strings.Fields(string(line))
+				if len(fields) > 1 {
+					dnsServer = fields[2]
+					break
+				}
+			}
+		}
+		if dnsServer == "" {
+			return "", fmt.Errorf("DNS server not found")
+		}
+		return dnsServer, nil
+	}
+	return "", errors.New("OS not supported")
 }

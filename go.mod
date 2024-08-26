@@ -8,6 +8,7 @@ require (
 	github.com/miekg/dns v1.1.61
 	github.com/pterm/pterm v0.12.79
 	github.com/rs/zerolog v1.33.0
+	golang.org/x/exp v0.0.0-20220909182711-5c715a9e8561
 )
 
 require (
