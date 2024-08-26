@@ -8,56 +8,16 @@
 
 ![image](https://user-images.githubusercontent.com/45588457/148035986-8b0076cc-fefb-48a1-9939-a8d9ab1d6322.png)
 
-# Установка
-## Бинарник
-SpoofDPI будет установлен в директорию `~/.spoof-dpi/bin`.
-Чтобы запустить SpoofDPI в любой директории, добавьте строку ниже в `~/.bashrc || ~/.zshrc || ...`
-```
-export PATH=$PATH:~/.spoof-dpi/bin
-```
----
-```bash
-# macOS Intel
-curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bash -s darwin-amd64
-
-# macOS Apple Silicon
-curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bash -s darwin-arm64
-
-# linux-amd64
-curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bash -s linux-amd64
-
-# linux-arm
-curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bash -s linux-arm
-
-# linux-arm64
-curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bash -s linux-arm64
-
-# linux-mips
-curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bash -s linux-mips
-
-# linux-mipsle
-curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bash -s linux-mipsle
-```
-
-## Go
-Вы также можете установить SpoofDPI с помощью `go install`
-```bash
-$ go install github.com/xvzc/SpoofDPI/cmd/spoof-dpi@latest
-```
-
-## Git
-Вы также можете собрать SpoofDPI
-```bash
-$ git clone https://github.com/xvzc/SpoofDPI.git
-$ cd SpoofDPI
-$ go build ./cmd/...
-```
+# Installation
+See the installation guide for SpoofDPI [here](https://github.com/xvzc/SpoofDPI/blob/main/_docs/INSTALL.md).
 
 # Использование
 ```
 Usage: spoof-dpi [опции...]
   -addr string
         listen address (default "127.0.0.1")
+  -banner
+        enable banner (default true)
   -debug
         enable debug output
   -dns-addr string
@@ -66,8 +26,6 @@ Usage: spoof-dpi [опции...]
         port number for dns (default 53)
   -enable-doh
         enable 'dns-over-https'
-  -no-banner
-        disable banner
   -pattern value
         bypass DPI only on packets matching this regex pattern; can be given multiple times
   -port int
@@ -104,5 +62,5 @@ google-chrome --proxy-server="http://127.0.0.1:8080"
 Я попробовал несколько способов обойти это, и обнаружил, что, похоже, проверяется только первый фрагмент, когда мы отправляем пакет Client Hello, разделенный на фрагменты. Чтобы обойти DPI, SpoofDPI отправляет на сервер первый 1 байт запроса, а затем отправляет все остальное.
 
 # Вдохновение
-[Green Tunnel](https://github.com/SadeghHayeri/GreenTunnel) от @SadeghHayeri
+[Green Tunnel](https://github.com/SadeghHayeri/GreenTunnel) от @SadeghHayeri  
 [GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI) от @ValdikSS

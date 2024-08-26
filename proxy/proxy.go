@@ -1,16 +1,7 @@
 package proxy
 
 import (
-	"bufio"
 	"context"
-	"fmt"
-	dnstype "github.com/miekg/dns"
-	"github.com/xvzc/SpoofDPI/dns"
-	"github.com/xvzc/SpoofDPI/dns/resolver"
-	"github.com/xvzc/SpoofDPI/packet"
-	"github.com/xvzc/SpoofDPI/util"
-	"github.com/xvzc/SpoofDPI/util/log"
-	"golang.org/x/exp/maps"
 	"net"
 	"os"
 	"regexp"
@@ -24,6 +15,13 @@ const scopeProxy = "PROXY"
 
 var domainList []string
 
+	"github.com/xvzc/SpoofDPI/dns"
+	"github.com/xvzc/SpoofDPI/packet"
+	"github.com/xvzc/SpoofDPI/util"
+	"github.com/xvzc/SpoofDPI/util/log"
+)
+
+const scopeProxy = "PROXY"
 func init() {
 	file, err := os.Open("blocked_domains.txt")
 	if err != nil {
@@ -75,19 +73,6 @@ func (pxy *Proxy) Start(ctx context.Context) {
 	ctx = util.GetCtxWithScope(ctx, scopeProxy)
 	logger := log.GetCtxLogger(ctx)
 
-	generalResolver := resolver.NewGeneralResolver(fmt.Sprintf("%s:53", pxy.currentDns))
-	vpnCache := make(map[string][]net.IPAddr)
-	mu := &sync.Mutex{}
-	tick := time.Tick(30 * time.Minute)
-	go func() {
-		for range tick {
-			logger.Warn().Msgf("clearing vpn dns cache")
-			mu.Lock()
-			maps.Clear(vpnCache)
-			mu.Unlock()
-		}
-	}()
-
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP(pxy.addr), Port: pxy.port})
 	if err != nil {
 		logger.Fatal().Msgf("error creating listener: %s", err)
@@ -96,6 +81,11 @@ func (pxy *Proxy) Start(ctx context.Context) {
 
 	if pxy.timeout > 0 {
 		logger.Info().Msgf("connection timeout is set to %d ms", pxy.timeout)
+	}
+
+	logger.Info().Msgf("created a listener on port %d", pxy.port)
+	if len(pxy.allowedPattern) > 0 {
+		logger.Info().Msgf("number of white-listed pattern: %d", len(pxy.allowedPattern))
 	}
 
 	logger.Info().Msgf("created a listener on port %d", pxy.port)
@@ -160,6 +150,8 @@ func (pxy *Proxy) Start(ctx context.Context) {
 					return
 				}
 			}
+
+			logger.Debug().Msgf("request from %s\n\n%s", conn.RemoteAddr(), pkt.Raw())
 
 			logger.Debug().Msgf("request from %s\n\n%s", conn.RemoteAddr(), pkt.Raw())
 

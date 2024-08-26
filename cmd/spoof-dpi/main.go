@@ -29,14 +29,14 @@ func main() {
 
 	pxy := proxy.New(config)
 
-	if config.NoBanner {
-		util.PrintSimpleInfo()
-	} else {
+	if config.Banner {
 		util.PrintColoredBanner()
+	} else {
+		util.PrintSimpleInfo()
 	}
 
 	if config.SystemProxy {
-		if err := util.SetOsProxy(config.Port); err != nil {
+		if err := util.SetOsProxy(uint16(config.Port)); err != nil {
 			logger.Fatal().Msgf("error while changing proxy settings: %s", err)
 		}
 		defer func() {
