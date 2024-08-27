@@ -13,7 +13,7 @@ See the installation guide for SpoofDPI [here](https://github.com/xvzc/SpoofDPI/
 
 # Usage
 ```
-Usage: spoof-dpi [options...]
+Usage: spoofdpi [options...]
   -addr string
         listen address (default "127.0.0.1")
   -banner
@@ -34,7 +34,7 @@ Usage: spoof-dpi [options...]
         enable system-wide proxy (default true)
   -timeout int
         timeout in milliseconds; no timeout when not given
-  -v    print spoof-dpi's version; this may contain some other relevant information
+  -v    print spoofdpi's version; this may contain some other relevant information
   -window-size int
         chunk size, in number of bytes, for fragmented client hello,
         try lower values if the default value doesn't bypass the DPI;
@@ -45,23 +45,23 @@ Usage: spoof-dpi [options...]
   go to Settings > Extensions, and disable them.
 
 ### OSX
-Run `spoof-dpi` and it will automatically set your proxy
+Run `spoofdpi` and it will automatically set your proxy
 
 ### Linux
-Run `spoof-dpi` and open your favorite browser with proxy option
+Run `spoofdpi` and open your favorite browser with proxy option
 ```bash
 google-chrome --proxy-server="http://127.0.0.1:8080"
 ```
 
 # How it works
 ### HTTP
- Since most of websites in the world now support HTTPS, SpoofDPI doesn't bypass Deep Packet Inspections for HTTP requets, However It still serves proxy connection for all HTTP requests.
+ Since most websites in the world now support HTTPS, SpoofDPI doesn't bypass Deep Packet Inspections for HTTP requests, However, it still serves proxy connection for all HTTP requests.
 
 ### HTTPS
  Although TLS encrypts every handshake process, the domain names are still shown as plaintext in the Client hello packet.
  In other words, when someone else looks on the packet, they can easily guess where the packet is headed to.
- The domain name can offer a significant information while DPI is being processed, and we can actually see that the connection is blocked right after sending Client hello packet.
- I had tried some ways to bypass this, and found out that it seemed like only the first chunk gets inspected when we send the Client hello packet splited in chunks.
+ The domain name can offer significant information while DPI is being processed, and we can actually see that the connection is blocked right after sending Client hello packet.
+ I had tried some ways to bypass this and found out that it seemed like only the first chunk gets inspected when we send the Client hello packet split into chunks.
  What SpoofDPI does to bypass this is to send the first 1 byte of a request to the server,
  and then send the rest.
 

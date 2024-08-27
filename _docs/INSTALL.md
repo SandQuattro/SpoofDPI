@@ -1,10 +1,33 @@
 # Installation
 
-## Binary
-SpoofDPI will be installed in `~/.spoof-dpi/bin`.
-To run SpoofDPI in any directory, add the line below to your `~/.bashrc || ~/.zshrc || ...`
+## Homebrew 🍻
+```bash
+brew install spoofdpi
 ```
-export PATH=$PATH:~/.spoof-dpi/bin
+### Run with binary
+```bash
+spoofdpi
+```
+### Run as a service
+```bash
+brew services start spoofdpi # This will automatically relaunch SpoofDPI on startup
+```
+
+```bash
+brew services run spoofdpi # This will not relaunch SpoofDPI on startup
+```
+### Logs
+If you run SpoofDPI as a service, it will write logs into the files below
+```bash
+$HOMEBREW_PREFIX/var/log/spoofdpi/output.log
+$HOMEBREW_PREFIX/var/log/spoofdpi/error.log
+```
+
+## Curl
+SpoofDPI will be installed in `~/.spoofdpi/bin`.
+To run SpoofDPI in any directory, add the line below to your `~/.bashrc || ~/.zshrc || ...`
+```bash
+export PATH=$PATH:~/.spoofdpi/bin
 ```
 ---
 ```bash
@@ -30,18 +53,22 @@ curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bas
 curl -fsSL https://raw.githubusercontent.com/xvzc/SpoofDPI/main/install.sh | bash -s linux-mipsle
 ```
 
+# Run
+```bash
+spoofdpi
+```
 
 ## Go
 You can also install SpoofDPI with `go install`
 ```bash
-$ go install github.com/xvzc/SpoofDPI/cmd/spoof-dpi@latest
+go install github.com/xvzc/SpoofDPI/cmd/spoofdpi@latest
 ```
 
 ## Git
 You can also build your own
 ```bash
-$ git clone https://github.com/xvzc/SpoofDPI.git
-$ cd SpoofDPI
-$ go build ./cmd/...
+git clone https://github.com/xvzc/SpoofDPI.git
+cd SpoofDPI
+go build ./cmd/...
 ```
 
