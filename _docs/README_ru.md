@@ -1,5 +1,3 @@
-**⭐Pull Request-ы или любое другое участие приветствуется⭐**
-
 # SpoofDPI
 
 Можете прочитать на других языках: [🇬🇧English](https://github.com/xvzc/SpoofDPI), [🇰🇷한국어](https://github.com/xvzc/SpoofDPI/blob/main/_docs/README_ko.md), [🇨🇳简体中文](https://github.com/xvzc/SpoofDPI/blob/main/_docs/README_zh-cn.md), [🇷🇺Русский](https://github.com/xvzc/SpoofDPI/blob/main/_docs/README_ru.md), [🇯🇵日本語](https://github.com/xvzc/SpoofDPI/blob/main/_docs/README_ja.md)
@@ -9,7 +7,11 @@
 ![image](https://user-images.githubusercontent.com/45588457/148035986-8b0076cc-fefb-48a1-9939-a8d9ab1d6322.png)
 
 # Installation
-Инструкции по установке SpoofDPI вы можете найти [здесь](https://github.com/xvzc/SpoofDPI/blob/main/_docs/QUICK_START.md).
+Инструкции по установке SpoofDPI вы можете найти [здесь](https://github.com/xvzc/SpoofDPI/blob/main/_docs/INSTALL.md).
+
+<a href="https://repology.org/project/spoofdpi/versions">
+    <img src="https://repology.org/badge/vertical-allrepos/spoofdpi.svg?columns=1" alt="Packaging status">
+</a>  
 
 # Использование
 ```
