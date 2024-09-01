@@ -40,16 +40,16 @@ func GetConfig() *Config {
 
 func (c *Config) Load(args *Args) {
 	c.Addr = args.Addr
-	c.Port = args.Port
+	c.Port = int(args.Port)
 	c.DnsAddr = args.DnsAddr
-	c.DnsPort = args.DnsPort
+	c.DnsPort = int(args.DnsPort)
 	c.Debug = args.Debug
 	c.EnableDoh = args.EnableDoh
 	c.Banner = args.Banner
 	c.SystemProxy = args.SystemProxy
-	c.Timeout = args.Timeout
+	c.Timeout = int(args.Timeout)
 	c.AllowedPatterns = parseAllowedPattern(args.AllowedPattern)
-	c.WindowSize = args.WindowSize
+	c.WindowSize = int(args.WindowSize)
 
 	c.VPNPatterns = parseAllowedPattern(args.VPNPattern)
 	currentDns, err := getCurrentDNSServer()
