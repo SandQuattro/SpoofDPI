@@ -18,9 +18,10 @@ type Config struct {
 	Port            int
 	DnsAddr         string
 	DnsPort         int
+	DnsIPv4Only     bool
 	EnableDoh       bool
 	Debug           bool
-	Banner          bool
+	Silent          bool
 	SystemProxy     bool
 	Timeout         int
 	WindowSize      int
@@ -43,9 +44,10 @@ func (c *Config) Load(args *Args) {
 	c.Port = int(args.Port)
 	c.DnsAddr = args.DnsAddr
 	c.DnsPort = int(args.DnsPort)
+	c.DnsIPv4Only = args.DnsIPv4Only
 	c.Debug = args.Debug
 	c.EnableDoh = args.EnableDoh
-	c.Banner = args.Banner
+	c.Silent = args.Silent
 	c.SystemProxy = args.SystemProxy
 	c.Timeout = int(args.Timeout)
 	c.AllowedPatterns = parseAllowedPattern(args.AllowedPattern)
