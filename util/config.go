@@ -86,17 +86,6 @@ func PrintColoredBanner() {
 	pterm.DefaultBasicText.Println("Press 'CTRL + c' to quit")
 }
 
-func PrintSimpleInfo() {
-	fmt.Println("")
-	fmt.Println("- ADDR    : ", config.Addr)
-	fmt.Println("- PORT    : ", config.Port)
-	fmt.Println("- DNS     : ", config.DnsAddr)
-	fmt.Println("- DEBUG   : ", config.Debug)
-	fmt.Println("")
-	fmt.Println("Press 'CTRL + c to quit'")
-	fmt.Println("")
-}
-
 func getCurrentDNSServer() (string, error) {
 	if runtime.GOOS == "darwin" {
 		cmd := exec.Command("scutil", "--dns")
