@@ -121,8 +121,8 @@ func (pxy *Proxy) Start(ctx context.Context) {
 		}
 
 		go func() {
-			ctx := util.GetCtxWithTraceId(ctx)
-			logger := log.GetCtxLogger(ctx)
+			ctx = util.GetCtxWithTraceId(ctx)
+			logger = log.GetCtxLogger(ctx)
 
 			pkt, err := packet.ReadHttpRequest(conn)
 			if err != nil {
@@ -164,6 +164,7 @@ func (pxy *Proxy) Start(ctx context.Context) {
 			for _, domain := range domainList {
 				if strings.Contains(pkt.Domain(), domain) {
 					logger.Warn().Msgf("blocked domain: %s", pkt.Domain())
+					conn.Write([]byte(pkt.Version() + " 502 Bad Gateway\r\n\r\n"))
 					conn.Close()
 					return
 				}
